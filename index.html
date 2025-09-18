@@ -307,12 +307,69 @@
         // UTILS
         const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
 
+        const getBillingCycle = (viewDate, closingDay) => {
+            const year = viewDate.getFullYear();
+            const month = viewDate.getMonth();
+            const cycleEnd = new Date(year, month, closingDay, 23, 59, 59, 999);
+            const cycleStart = new Date(year, month - 1, closingDay + 1, 0, 0, 0, 0);
+            return { cycleStart, cycleEnd };
+        };
+        
+        const renderCreditCardSummary = () => {
+            const { limite, fechamento, vencimento } = state.cartaoCredito;
+            const viewDate = new Date(state.viewDate);
+
+            document.getElementById('card-limit').value = limite > 0 ? limite : '';
+            document.getElementById('card-closing-day').value = fechamento;
+            document.getElementById('card-due-day').value = vencimento;
+
+            const { cycleStart, cycleEnd } = getBillingCycle(viewDate, fechamento);
+            let faturaAtual = 0;
+
+            state.despesasMensais.forEach(expense => {
+                if (expense.pagamento === 'Crédito') {
+                    const expenseDate = new Date(expense.data + 'T12:00:00');
+                    if (expenseDate >= cycleStart && expenseDate <= cycleEnd) {
+                        faturaAtual += expense.valor;
+                    }
+                }
+            });
+
+            state.despesasFixas.forEach(expense => {
+                if (expense.pagamento === 'Crédito') {
+                    const potentialDateInEndMonth = new Date(cycleEnd.getFullYear(), cycleEnd.getMonth(), expense.vencimento);
+                    if (potentialDateInEndMonth >= cycleStart && potentialDateInEndMonth <= cycleEnd) {
+                         faturaAtual += expense.valor;
+                         return;
+                    }
+                    const potentialDateInStartMonth = new Date(cycleStart.getFullYear(), cycleStart.getMonth(), expense.vencimento);
+                    if (potentialDateInStartMonth >= cycleStart && potentialDateInStartMonth <= cycleEnd) {
+                         faturaAtual += expense.valor;
+                    }
+                }
+            });
+
+            const spentEl = document.getElementById('credit-card-spent');
+            const availableEl = document.getElementById('credit-card-available');
+            const progressBarEl = document.getElementById('credit-card-progress-bar');
+            
+            const available = limite - faturaAtual;
+            const progress = limite > 0 ? (faturaAtual / limite) * 100 : 0;
+
+            spentEl.textContent = formatCurrency(faturaAtual);
+            availableEl.textContent = formatCurrency(available);
+            progressBarEl.style.width = `${progress > 100 ? 100 : progress}%`;
+            progressBarEl.textContent = `${progress.toFixed(0)}%`;
+            progressBarEl.classList.toggle('bg-red-500', progress > 100);
+            progressBarEl.classList.toggle('bg-blue-500', progress <= 100);
+        };
+        
         // RENDER FUNCTIONS
         const renderOtherTabs = () => {
              // Entradas
             document.getElementById('salario-quinzena1').value = state.salario.primeiraQuinzena > 0 ? state.salario.primeiraQuinzena : '';
             document.getElementById('salario-quinzena2').value = state.salario.segundaQuinzena > 0 ? state.salario.segundaQuinzena : '';
-            document.getElementById('lista-entradas-extras').innerHTML = state.entradasExtras.map((item, index) => `<div class="grid grid-cols-3 gap-2 items-center bg-white p-3 rounded-md shadow-sm"><span class="truncate">${item.desc}</span><span class="text-sm text-gray-600 text-center">${new Date(item.data + 'T00:00:00').toLocaleDateString('pt-BR')}</span><div class="flex items-center justify-end gap-4"><span class="font-semibold text-green-600">${formatCurrency(item.valor)}</span><button data-index="${index}" class="delete-extra-income text-red-500 hover:text-red-700 font-bold text-lg leading-none">&times;</button></div></div>`).join('');
+            document.getElementById('lista-entradas-extras').innerHTML = state.entradasExtras.map((item, index) => `<div class="grid grid-cols-4 gap-2 items-center bg-white p-3 rounded-md shadow-sm"><span class="truncate col-span-2">${item.desc}</span><span class="text-sm text-gray-600 text-center">${new Date(item.data + 'T00:00:00').toLocaleDateString('pt-BR')}</span><div class="flex items-center justify-end gap-4"><span class="font-semibold text-green-600">${formatCurrency(item.valor)}</span><button data-index="${index}" class="delete-extra-income text-red-500 hover:text-red-700 font-bold text-lg leading-none">&times;</button></div></div>`).join('');
             
             // Despesas
             const renderExpenseList = (items, type) => items.map((item, index) => `<div class="grid grid-cols-5 gap-2 items-center bg-white p-2 rounded-md shadow-sm text-sm"><span class="col-span-2 truncate font-medium">${item.desc}</span><span class="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded-full text-center truncate">${item.categoria}</span><div class="text-center text-xs text-gray-600"><span class="font-semibold">${type === 'fixed' ? `Dia ${item.vencimento}` : new Date(item.data + 'T00:00:00').toLocaleDateString('pt-BR')}</span> <span class="px-2 py-0.5 text-xs rounded-full ${item.pagamento === 'Crédito' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">${item.pagamento}</span></div><div class="flex items-center justify-end gap-2"><span class="font-semibold text-red-600">${formatCurrency(item.valor)}</span><button data-index="${index}" class="delete-${type}-expense text-red-500 hover:text-red-700 font-bold text-lg leading-none">&times;</button></div></div>`).join('');
@@ -320,20 +377,17 @@
             document.getElementById('lista-despesas-variaveis').innerHTML = renderExpenseList(state.despesasMensais, 'monthly');
             document.getElementById('total-despesas-fixas').textContent = formatCurrency(state.despesasFixas.reduce((acc, i) => acc + i.valor, 0));
             document.getElementById('total-despesas-variaveis').textContent = formatCurrency(state.despesasMensais.reduce((acc, i) => acc + i.valor, 0));
-            document.getElementById('card-limit').value = state.cartaoCredito.limite > 0 ? state.cartaoCredito.limite : '';
-            document.getElementById('card-closing-day').value = state.cartaoCredito.fechamento;
-            document.getElementById('card-due-day').value = state.cartaoCredito.vencimento;
-
+            
             // Uber
             const { trabalho, avulsas } = state.uberControl;
             document.getElementById('uber-work-limit').value = trabalho.limite;
             document.getElementById('uber-work-usage-text').textContent = `${trabalho.viagens.length} de ${trabalho.limite} viagens usadas`;
             document.getElementById('uber-work-progress-bar').style.width = `${trabalho.limite > 0 ? (trabalho.viagens.length / trabalho.limite) * 100 : 0}%`;
-            document.getElementById('lista-uber-trabalho').innerHTML = trabalho.viagens.map(item => `<div class="flex justify-between items-center bg-gray-100 p-2 rounded-md text-sm"><span>Viagem para o trabalho</span><div class="flex items-center gap-2"><span class="font-semibold text-gray-700">${formatCurrency(item.valor)}</span><button data-id="${item.id}" class="delete-uber-work text-red-500 hover:text-red-700 font-bold text-lg leading-none">&times;</button></div></div>`).join('');
+            document.getElementById('lista-uber-trabalho').innerHTML = trabalho.viagens.map(item => `<div class="flex justify-between items-center bg-gray-100 p-2 rounded-md text-sm"><span>Viagem p/ trabalho</span><div class="flex items-center gap-2"><span class="font-semibold text-gray-700">${formatCurrency(item.valor)}</span><button data-id="${item.id}" class="delete-uber-work text-red-500 hover:text-red-700 font-bold text-lg leading-none">&times;</button></div></div>`).join('');
             document.getElementById('lista-uber-avulsas').innerHTML = avulsas.map(item => `<div class="flex justify-between items-center bg-gray-100 p-2 rounded-md text-sm"><span class="truncate">${item.desc || 'Viagem avulsa'}</span><div class="flex items-center gap-2"><span class="font-semibold text-gray-700">${formatCurrency(item.valor)}</span><button data-id="${item.id}" class="delete-uber-personal text-red-500 hover:text-red-700 font-bold text-lg leading-none">&times;</button></div></div>`).join('');
             
             // Dívidas
-            document.getElementById('lista-dividas').innerHTML = state.dividas.map(d => { const restante = d.valorTotal - d.valorPago; const progresso = (d.valorPago / d.valorTotal) * 100; const quitada = restante <= 0; return `<div class="bg-white p-4 rounded-lg shadow-sm border"> ... </div>`; }).join(''); // Omitted for brevity
+            document.getElementById('lista-dividas').innerHTML = state.dividas.map((d, index) => { const restante = d.valorTotal - d.valorPago; const progresso = (d.valorPago / d.valorTotal) * 100; const quitada = restante <= 0.001; return `<div class="bg-white p-4 rounded-lg shadow-sm border ${quitada ? 'opacity-60' : ''}"><div class="flex justify-between items-start"><div><h4 class="font-semibold text-lg">${d.desc}</h4><p class="text-sm text-gray-600">Falta <span class="font-bold text-red-600">${formatCurrency(restante)}</span> de ${formatCurrency(d.valorTotal)}</p></div><div class="text-right"><p class="font-semibold text-gray-800">${formatCurrency(d.valorParcela)} / mês</p><button data-index="${index}" class="delete-debt text-red-400 hover:text-red-600 text-xs mt-1">Remover</button></div></div><div class="mt-3"><div class="progress-bar h-2.5 w-full bg-gray-200"><div class="progress-bar-fill ${progresso >= 100 ? 'bg-green-500' : 'bg-blue-500'}" style="width: ${progresso}%"></div></div><div class="text-center mt-2"><button data-index="${index}" ${quitada ? 'disabled' : ''} class="pay-debt-parcel bg-blue-600 text-white py-1 px-3 rounded-md shadow-sm hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm">Pagar Parcela</button></div></div></div>`; }).join('');
         };
 
         const renderAll = () => {
@@ -359,7 +413,7 @@
             state.entradasExtras.forEach(e => { const d = new Date(e.data + 'T00:00:00'); if (d.getMonth() === month && d.getFullYear() === year) addToDay(d.getDate(), { ...e, type: 'entrada' }); });
             state.despesasMensais.forEach(d => { const dt = new Date(d.data + 'T00:00:00'); if (dt.getMonth() === month && dt.getFullYear() === year) addToDay(dt.getDate(), { ...d, type: 'saida' }); });
             state.despesasFixas.forEach(d => addToDay(d.vencimento, { ...d, type: 'saida' }));
-            state.dividas.filter(d => d.valorPago < d.valorTotal).forEach(d => addToDay(state.cartaoCredito.vencimento, { desc: `Parcela: ${d.desc}`, valor: d.valorParcela, type: 'saida' }));
+            state.dividas.filter(d => (d.valorPago || 0) < (d.valorTotal || 0)).forEach(d => addToDay(state.cartaoCredito.vencimento, { desc: `Parcela: ${d.desc}`, valor: d.valorParcela, type: 'saida' }));
 
             for (let i = 0; i < firstDayOfMonth; i++) { calendarGrid.innerHTML += `<div class="calendar-day other-month"></div>`; }
             for (let day = 1; day <= daysInMonth; day++) {
@@ -372,22 +426,8 @@
             document.querySelectorAll('.calendar-day[data-day]').forEach(cell => { if(transactionsByDay[cell.dataset.day]) cell.addEventListener('click', () => showDayDetails(cell.dataset.day, transactionsByDay, viewDate)); });
             
             // MONTHLY SUMMARY
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
-            const monthlyIncome = Object.entries(transactionsByDay).reduce((total, [day, transactions]) => {
-                const transactionDate = new Date(year, month, parseInt(day));
-                transactionDate.setHours(0, 0, 0, 0);
-
-                if (transactionDate <= today) {
-                    const incomeForDay = transactions
-                        .filter(t => t.type === 'entrada')
-                        .reduce((acc, t) => acc + t.valor, 0);
-                    return total + incomeForDay;
-                }
-                return total;
-            }, 0);
-
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const monthlyIncome = Object.entries(transactionsByDay).reduce((total, [day, transactions]) => { const transactionDate = new Date(year, month, parseInt(day)); transactionDate.setHours(0, 0, 0, 0); if (transactionDate <= today) { return total + transactions.filter(t => t.type === 'entrada').reduce((acc, t) => acc + t.valor, 0); } return total; }, 0);
             const monthlyOutcome = Object.values(transactionsByDay).flat().filter(t => t.type === 'saida').reduce((acc, t) => acc + t.valor, 0);
             
             document.getElementById('summary-total-entradas').textContent = formatCurrency(monthlyIncome);
@@ -395,6 +435,7 @@
             document.getElementById('summary-saldo-final').textContent = formatCurrency(monthlyIncome - monthlyOutcome);
 
             renderOtherTabs();
+            renderCreditCardSummary();
             saveData();
         };
 
@@ -403,15 +444,9 @@
             const modalTitle = document.getElementById('modal-title');
             const modalBody = document.getElementById('modal-body');
             const transactions = transactionsByDay[day] || [];
-            
             const date = new Date(viewDate.getFullYear(), viewDate.getMonth(), day);
             modalTitle.textContent = `Transações de ${date.toLocaleDateString('pt-BR', { dateStyle: 'full' })}`;
-            
-            modalBody.innerHTML = transactions.map(t => {
-                const isIncome = t.type === 'entrada';
-                return `<div class="flex justify-between items-center py-2 border-b last:border-b-0"><span class="flex-1 truncate">${t.desc}</span><span class="font-semibold ${isIncome ? 'text-green-600' : 'text-red-600'}">${isIncome ? '+' : '-'} ${formatCurrency(t.valor)}</span></div>`;
-            }).join('');
-
+            modalBody.innerHTML = transactions.map(t => `<div class="flex justify-between items-center py-2 border-b last:border-b-0"><span class="flex-1 truncate">${t.desc}</span><span class="font-semibold ${t.type === 'entrada' ? 'text-green-600' : 'text-red-600'}">${t.type === 'entrada' ? '+' : '-'} ${formatCurrency(t.valor)}</span></div>`).join('') || `<p class="text-gray-500 text-center">Nenhuma transação para este dia.</p>`;
             modal.classList.remove('hidden');
             setTimeout(() => modal.classList.remove('opacity-0'), 10);
         };
@@ -425,22 +460,19 @@
         // EVENT LISTENERS
         const setupListeners = () => {
             document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => { document.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active')); document.getElementById(tab.dataset.tab).classList.add('active'); }));
-            
-            // Calendar Navigation
             document.getElementById('prev-month-btn').addEventListener('click', () => { const d = new Date(state.viewDate); d.setMonth(d.getMonth() - 1); state.viewDate = d.toISOString(); renderAll(); });
             document.getElementById('next-month-btn').addEventListener('click', () => { const d = new Date(state.viewDate); d.setMonth(d.getMonth() + 1); state.viewDate = d.toISOString(); renderAll(); });
-
-            // Modal Listeners
             document.getElementById('modal-close-btn').addEventListener('click', hideDayDetails);
             document.getElementById('calendar-modal').addEventListener('click', (e) => { if (e.target.id === 'calendar-modal') hideDayDetails(); });
-
-            // Other forms listeners... (omitted for brevity, same as before)
             document.getElementById('salario-quinzena1').addEventListener('change', e => { state.salario.primeiraQuinzena = parseFloat(e.target.value) || 0; renderAll(); });
             document.getElementById('salario-quinzena2').addEventListener('change', e => { state.salario.segundaQuinzena = parseFloat(e.target.value) || 0; renderAll(); });
+            document.getElementById('card-limit').addEventListener('change', e => { state.cartaoCredito.limite = parseFloat(e.target.value) || 0; renderAll(); });
+            document.getElementById('card-closing-day').addEventListener('change', e => { state.cartaoCredito.fechamento = parseInt(e.target.value) || 1; renderAll(); });
+            document.getElementById('card-due-day').addEventListener('change', e => { state.cartaoCredito.vencimento = parseInt(e.target.value) || 1; renderAll(); });
             document.getElementById('form-extra-income').addEventListener('submit', e => { e.preventDefault(); const desc = document.getElementById('extra-income-desc').value; const valor = parseFloat(document.getElementById('extra-income-valor').value); const data = document.getElementById('extra-income-data').value; if (desc && valor > 0 && data) { state.entradasExtras.push({ desc, valor, data }); e.target.reset(); renderAll(); } });
             document.getElementById('form-fixed-expense').addEventListener('submit', e => { e.preventDefault(); const desc = document.getElementById('fixed-expense-desc').value; const categoria = document.getElementById('fixed-expense-category').value; const valor = parseFloat(document.getElementById('fixed-expense-valor').value); const pagamento = document.getElementById('fixed-expense-pagamento').value; const vencimento = parseInt(document.getElementById('fixed-expense-vencimento').value); if (desc && valor > 0 && vencimento > 0 && vencimento < 32) { state.despesasFixas.push({ desc, categoria, valor, pagamento, vencimento }); e.target.reset(); renderAll(); } });
             document.getElementById('form-monthly-expense').addEventListener('submit', e => { e.preventDefault(); const desc = document.getElementById('monthly-expense-desc').value; const categoria = document.getElementById('monthly-expense-category').value; const valor = parseFloat(document.getElementById('monthly-expense-valor').value); const pagamento = document.getElementById('monthly-expense-pagamento').value; const data = document.getElementById('monthly-expense-data').value; if (desc && valor > 0 && data) { state.despesasMensais.push({ desc, categoria, valor, pagamento, data }); e.target.reset(); renderAll(); } });
-            document.body.addEventListener('click', e => { let needsRender = true; if (e.target.closest('.delete-extra-income')) state.entradasExtras.splice(e.target.closest('.delete-extra-income').dataset.index, 1); else if (e.target.closest('.delete-fixed-expense')) state.despesasFixas.splice(e.target.closest('.delete-fixed-expense').dataset.index, 1); else if (e.target.closest('.delete-monthly-expense')) state.despesasMensais.splice(e.target.closest('.delete-monthly-expense').dataset.index, 1); else { needsRender = false; } if(needsRender) renderAll(); });
+            document.body.addEventListener('click', e => { let needsRender = true; if (e.target.matches('.delete-extra-income')) state.entradasExtras.splice(e.target.dataset.index, 1); else if (e.target.matches('.delete-fixed-expense')) state.despesasFixas.splice(e.target.dataset.index, 1); else if (e.target.matches('.delete-monthly-expense')) state.despesasMensais.splice(e.target.dataset.index, 1); else { needsRender = false; } if(needsRender) renderAll(); });
         };
 
         // INITIALIZATION
