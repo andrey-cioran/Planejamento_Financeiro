@@ -331,11 +331,18 @@
         };
 
         // FIREBASE SETUP
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const firebaseConfig = {
+            apiKey: "AIzaSyBpMkdMTK2nbtNOQOAptxvmtpjQBFIJNfI",
+            authDomain: "controle-financeiro-8e797.firebaseapp.com",
+            projectId: "controle-financeiro-8e797",
+            storageBucket: "controle-financeiro-8e797.firebasestorage.app",
+            messagingSenderId: "549317632921",
+            appId: "1:549317632921:web:b78f57822bb19e656b2908"
+        };
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const appId = 'app-controle-financeiro-v1'; // Identificador fixo para o seu banco
 
         let currentUser = null;
         let docRef = null;
@@ -399,7 +406,12 @@
         const initAuth = async () => {
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
+                    try {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } catch (e) {
+                        console.warn("A utilizar configuração própria do Firebase. A iniciar sessão anónima...");
+                        await signInAnonymously(auth);
+                    }
                 } else {
                     await signInAnonymously(auth);
                 }
