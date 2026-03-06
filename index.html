@@ -55,13 +55,34 @@
 </head>
 <body class="bg-gray-100 text-gray-800">
 
-    <div class="container mx-auto max-w-4xl p-4 sm:p-6">
+    <!-- Tela de Login Overlay -->
+    <div id="login-screen" class="fixed inset-0 bg-gray-100 flex items-center justify-center z-50 transition-opacity duration-300">
+        <div class="bg-white p-8 rounded-2xl shadow-lg max-w-sm w-full text-center mx-4">
+            <div class="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-900 mb-2">Bem-vindo!</h2>
+            <p class="text-gray-600 mb-6 text-sm">Faça login para sincronizar seu controle financeiro em todos os seus dispositivos com segurança.</p>
+            <button id="btn-login-google" class="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 text-gray-700 font-medium py-2.5 px-4 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm">
+                <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" class="w-5 h-5">
+                Entrar com Google
+            </button>
+            <p id="login-error" class="text-red-500 text-xs mt-4 hidden">Erro ao tentar fazer login. Tente novamente.</p>
+        </div>
+    </div>
+
+    <div class="container mx-auto max-w-4xl p-4 sm:p-6 relative">
         <header class="text-center mb-8 relative">
             <h1 class="text-3xl sm:text-4xl font-bold text-gray-900">Meu Controle Financeiro</h1>
             <p class="text-gray-600 mt-2">Sua vida financeira organizada em um só lugar.</p>
             
+            <!-- Botão de Sair -->
+            <button id="btn-logout" class="absolute top-0 left-0 mt-2 flex items-center text-xs font-medium text-red-600 bg-red-100 px-3 py-1 rounded-full hover:bg-red-200 transition hidden">
+                Sair
+            </button>
+
             <!-- Indicador de Status da Nuvem -->
-            <div id="cloud-sync-status" class="absolute top-0 right-0 mt-2 flex items-center text-xs font-medium text-gray-500 bg-gray-200 px-3 py-1 rounded-full">
+            <div id="cloud-sync-status" class="absolute top-0 right-0 mt-2 flex items-center text-xs font-medium text-gray-500 bg-gray-200 px-3 py-1 rounded-full hidden">
                 <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -70,7 +91,7 @@
             </div>
         </header>
 
-        <main class="bg-white rounded-2xl shadow-lg p-4 sm:p-6 opacity-0 transition-opacity duration-500" id="main-content">
+        <main class="bg-white rounded-2xl shadow-lg p-4 sm:p-6 opacity-0 transition-opacity duration-500 hidden" id="main-content">
             <!-- Tabs Navigation -->
             <div class="border-b border-gray-200 mb-6">
                 <nav class="-mb-px flex space-x-4 sm:space-x-8 overflow-x-auto" aria-label="Tabs">
@@ -302,7 +323,7 @@
     <!-- Firebase e Scripts -->
     <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -341,28 +362,35 @@
         };
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
         const db = getFirestore(app);
-        const appId = 'app-controle-financeiro-v1'; // Identificador fixo para o seu banco
 
         let currentUser = null;
         let docRef = null;
         let unsubscribeSnapshot = null;
 
+        // UI Elementos Login
+        const loginScreen = document.getElementById('login-screen');
+        const mainContent = document.getElementById('main-content');
+        const btnLoginGoogle = document.getElementById('btn-login-google');
+        const btnLogout = document.getElementById('btn-logout');
+        const cloudSyncStatus = document.getElementById('cloud-sync-status');
+        const loginErrorMsg = document.getElementById('login-error');
+
         // Função para mostrar que salvou na nuvem
         const updateSyncStatus = (message, isLoading = false) => {
-            const statusEl = document.getElementById('cloud-sync-status');
             if (isLoading) {
-                statusEl.innerHTML = `
+                cloudSyncStatus.innerHTML = `
                     <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg> Sincronizando...`;
-                statusEl.classList.remove('bg-green-100', 'text-green-800');
-                statusEl.classList.add('bg-gray-200', 'text-gray-500');
+                cloudSyncStatus.classList.remove('bg-green-100', 'text-green-800');
+                cloudSyncStatus.classList.add('bg-gray-200', 'text-gray-500');
             } else {
-                statusEl.innerHTML = `<span class="text-green-600 mr-1">✓</span> Nuvem atualizada`;
-                statusEl.classList.remove('bg-gray-200', 'text-gray-500');
-                statusEl.classList.add('bg-green-100', 'text-green-800');
+                cloudSyncStatus.innerHTML = `<span class="text-green-600 mr-1">✓</span> Nuvem atualizada`;
+                cloudSyncStatus.classList.remove('bg-gray-200', 'text-gray-500');
+                cloudSyncStatus.classList.add('bg-green-100', 'text-green-800');
             }
         };
 
@@ -371,10 +399,12 @@
             
             if (unsubscribeSnapshot) unsubscribeSnapshot();
 
+            // Salva na pasta do UID único do usuário logado no Google
+            docRef = doc(db, 'usuarios', currentUser.uid, 'finance', 'state');
+
             unsubscribeSnapshot = onSnapshot(docRef, (snapshot) => {
                 if (snapshot.exists()) {
                     state = { ...defaultState, ...snapshot.data() };
-                    // Correções de segurança caso chaves novas sejam adicionadas no futuro
                     if (typeof state.salario === 'number' || !state.salario) state.salario = defaultState.salario;
                     if (!state.uberControl) state.uberControl = defaultState.uberControl;
                     if (!state.gasolina) state.gasolina = defaultState.gasolina;
@@ -385,13 +415,11 @@
                     setDoc(docRef, state);
                 }
                 
-                // Mostrar a interface após carregar os dados
-                document.getElementById('main-content').classList.remove('opacity-0');
                 updateSyncStatus('Sincronizado');
                 renderView();
             }, (error) => {
                 console.error("Erro na sincronização:", error);
-                document.getElementById('cloud-sync-status').textContent = "Erro de conexão";
+                cloudSyncStatus.textContent = "Erro de conexão";
             });
         };
 
@@ -403,31 +431,56 @@
                 .catch(err => console.error("Erro ao salvar:", err));
         };
 
-        const initAuth = async () => {
+        // Lógica de Login/Logout do Google
+        btnLoginGoogle.addEventListener('click', async () => {
             try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    try {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } catch (e) {
-                        console.warn("A utilizar configuração própria do Firebase. A iniciar sessão anónima...");
-                        await signInAnonymously(auth);
-                    }
-                } else {
-                    await signInAnonymously(auth);
-                }
+                loginErrorMsg.classList.add('hidden');
+                btnLoginGoogle.innerHTML = 'Conectando...';
+                btnLoginGoogle.disabled = true;
+                await signInWithPopup(auth, provider);
             } catch (error) {
-                console.error("Auth error:", error);
+                console.error("Erro no login:", error);
+                loginErrorMsg.classList.remove('hidden');
+                btnLoginGoogle.innerHTML = '<img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" class="w-5 h-5"> Entrar com Google';
+                btnLoginGoogle.disabled = false;
             }
-        };
+        });
 
+        btnLogout.addEventListener('click', async () => {
+            await signOut(auth);
+        });
+
+        // Escuta a mudança de estado (Logado vs Deslogado)
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 currentUser = user;
-                docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'finance', 'state');
+                // Esconde tela de login e mostra o app
+                loginScreen.classList.add('opacity-0', 'pointer-events-none');
+                setTimeout(() => loginScreen.classList.add('hidden'), 300);
+                
+                mainContent.classList.remove('hidden');
+                setTimeout(() => mainContent.classList.remove('opacity-0'), 50);
+                
+                cloudSyncStatus.classList.remove('hidden');
+                btnLogout.classList.remove('hidden');
+
                 setupRealtimeSync();
             } else {
                 currentUser = null;
                 if (unsubscribeSnapshot) unsubscribeSnapshot();
+                
+                // Mostra tela de login e esconde o app
+                loginScreen.classList.remove('hidden');
+                setTimeout(() => loginScreen.classList.remove('opacity-0', 'pointer-events-none'), 50);
+                
+                mainContent.classList.add('opacity-0');
+                setTimeout(() => mainContent.classList.add('hidden'), 500);
+                
+                cloudSyncStatus.classList.add('hidden');
+                btnLogout.classList.add('hidden');
+                
+                btnLoginGoogle.innerHTML = '<img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" class="w-5 h-5"> Entrar com Google';
+                btnLoginGoogle.disabled = false;
             }
         });
         
@@ -654,13 +707,12 @@
                     const divida = state.dividas[index];
                     if (!divida.valorPago) divida.valorPago = 0;
                     
-                    // Adiciona o valor como pago e cria uma transação na lista de variáveis
                     divida.valorPago += divida.valorParcela;
                     state.despesasMensais.push({
                         desc: `Parcela Paga: ${divida.desc}`,
                         categoria: 'Outros',
                         valor: divida.valorParcela,
-                        pagamento: 'Débito', // Por padrão
+                        pagamento: 'Débito',
                         data: new Date().toISOString().split('T')[0]
                     });
                 }
@@ -672,7 +724,6 @@
 
         // INITIALIZATION
         setupListeners();
-        initAuth(); // Inicia o login invisível que carrega e sincroniza os dados
     });
     </script>
 </body>
